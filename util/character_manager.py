@@ -2,6 +2,8 @@ import json
 import random
 from pathlib import Path
 
+from .work_sources import WorkSources
+
 RATIO_TABLE: dict[int, list[float]] = {
     2:  [1, 1.6],
     3:  [1, 1.3, 1.8],
@@ -32,6 +34,16 @@ class CharacterManager:
         self._id_index: dict[int, dict] | None = None
         self._bonds: dict[str, list[int]] | None = None
         self._char_to_bonds: dict[int, list[str]] | None = None
+        self._work_sources = WorkSources()
+
+    def get_works(self, character_id: int | str) -> list[str]:
+        """Return bundled related work titles without network access."""
+        return self._work_sources.get(character_id)
+
+    async def get_works_online(self, character_id: int | str) -> list[str]:
+        """Return bundled works or try the exact Bangumi character ID once."""
+        character = self.get_character_by_id(character_id)
+        return await self._work_sources.lookup(character) if character else []
 
     def load_characters(self) -> list[dict]:
         """Load pre-sorted character pool from file once."""

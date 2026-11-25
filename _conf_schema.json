@@ -1,8 +1,50 @@
 {
+    "gameplay_enabled": {
+      "description": "启用群聊游戏",
+      "type": "bool",
+      "hint": "与旧插件同时安装并采集旧档时，在旧服关闭本项，避免相同指令被两边处理。",
+      "default": true
+    },
+    "official_markdown": {
+      "description": "QQ 官方机器人 Markdown",
+      "type": "bool",
+      "hint": "发送失败时回退到普通消息。关闭后保留文字短码。",
+      "default": true
+    },
+    "official_buttons": {
+      "description": "QQ 官方机器人快捷按钮",
+      "type": "bool",
+      "hint": "需要 QQ 开放平台授予相应消息权限。按钮不可用时可手动输入消息中的指令。",
+      "default": true
+    },
+    "migration_source_enabled": {
+      "description": "开启旧服采集和发码",
+      "type": "bool",
+      "hint": "仅在运行旧插件的 OneBot 实例开启，用于采集旧档并在私聊中发放认领码。",
+      "default": false
+    },
+    "migration_enabled": {
+      "description": "开启新服旧档认领",
+      "type": "bool",
+      "hint": "载入旧档迁移包后使用，在数据管理页面逐群关联。",
+      "default": false
+    },
+    "migration_match_names": {
+      "description": "允许首次抽卡按同名自动认领",
+      "type": "bool",
+      "hint": "只有平台提供的昵称唯一匹配时才使用。昵称可修改，默认关闭；QQ 官方群消息通常无昵称。",
+      "default": false
+    },
+    "online_work_lookup": {
+      "description": "查询角色时补查 Bangumi 关联作品",
+      "type": "bool",
+      "hint": "本地索引缺少结果时，查询指令可通过 Bangumi API 补查并短期缓存。",
+      "default": true
+    },
     "super_admins": {
-      "description": "超级管理员QQ号列表",
+      "description": "超级管理员玩家 ID 列表",
       "type": "list",
-      "hint": "超管QQ号列表，可执行刷新和终极轮回等专用命令",
+      "hint": "OneBot 填 QQ 号，QQ 官方机器人填该机器人下玩家的 OpenID，可在数据管理页查看。",
       "obvious_hint": true,
       "default": []
     },

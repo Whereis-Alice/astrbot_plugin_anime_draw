@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>二次元抽抽乐 · 数据管理</title>
+  <link rel="stylesheet" href="./style.css">
+  <script type="module" src="./app.mjs"></script>
+</head>
+<body>
+  <main>
+    <header class="masthead">
+      <div>
+        <h1>二次元抽抽乐</h1>
+        <p class="muted">查看群聊收藏与愿望单，处理玩家冷却和旧服存档。</p>
+      </div>
+      <button id="refresh" type="button">刷新数据</button>
+    </header>
+
+    <dl class="summary" aria-label="存档概览">
+      <div><dt>群聊存档</dt><dd id="group-count">—</dd></div>
+      <div><dt>玩家记录</dt><dd id="player-count">—</dd></div>
+      <div><dt>已关联旧服存档</dt><dd id="linked-count">—</dd></div>
+    </dl>
+
+    <nav aria-label="管理视图" class="views">
+      <button type="button" id="game-tab" aria-controls="game-view" aria-pressed="true">玩家存档</button>
+      <button type="button" id="migration-tab" aria-controls="migration-view" aria-pressed="false">存档迁移</button>
+    </nav>
+    <p id="notice" aria-live="polite" role="status" class="notice" hidden></p>
+
+    <section id="game-view" class="panel" aria-label="玩家存档" aria-busy="true">
+      <form id="filters" class="filters">
+        <label>群聊
+          <select id="group" disabled><option value="">正在读取…</option></select>
+        </label>
+        <label>玩家
+          <input type="search" id="query" maxlength="100" placeholder="昵称或玩家标识" disabled>
+        </label>
+        <button class="primary" id="search" type="submit" disabled>搜索</button>
+      </form>
+      <dl id="settings" class="settings" hidden aria-label="群聊设置"></dl>
+      <div class="table-scroll">
+        <table id="players" hidden>
+          <caption class="sr-only">玩家收藏、愿望单与冷却管理</caption>
+          <thead><tr><th scope="col">玩家</th><th scope="col">收藏</th><th scope="col">最爱</th><th scope="col">愿望单</th><th scope="col">热度</th><th scope="col">管理</th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+        <p id="empty" class="empty">正在连接 AstrBot 管理面板…</p>
+      </div>
+      <footer class="pager" id="pager" hidden>
+        <span class="muted" id="page-label"></span>
+        <div><button type="button" id="previous" disabled>上一页</button> <button type="button" id="next" disabled>下一页</button></div>
+      </footer>
+    </section>
+
+    <section id="migration-view" class="panel migration" aria-labelledby="migration-title" hidden>
+      <div>
+        <h2 id="migration-title">旧服存档</h2>
+        <p id="migration-status" class="muted">正在读取迁移状态…</p>
+      </div>
+      <div id="migration-info" class="migration-steps" hidden>
+        <form id="mapping" class="migration-form">
+          <h2>关联群聊</h2>
+          <p class="muted">先在目标群使用一次游戏指令，再刷新此页。关联后，玩家可以在目标群恢复旧存档。</p>
+          <label>旧服群聊 <select id="old-group" required></select></label>
+          <label>目标群聊 <select id="target-group" required></select></label>
+          <button type="submit" class="primary" id="map-submit">关联群聊</button>
+        </form>
+
+        <div id="pending-panel" class="migration-steps" hidden>
+          <h2>人工关联玩家</h2>
+          <p class="muted">核对旧 QQ 和目标群的玩家身份后再关联。玩家在目标群使用过游戏指令后，可在「玩家存档」查到新标识。</p>
+          <form id="pending-filter" class="migration-form">
+            <label>已关联群聊 <select id="mapped-group" required></select></label>
+            <label>查找旧账号 <input type="search" id="pending-query" placeholder="旧 QQ、昵称或群名片" maxlength="100"></label>
+            <button type="submit" id="pending-search">查询待关联账号</button>
+          </form>
+          <p id="pending-status" class="muted" role="status"></p>
+          <ul id="pending-rows" class="pending-rows"></ul>
+          <div class="pager pending-pager" id="pending-pager" hidden>
+            <span id="pending-page-label" class="muted"></span>
+            <div><button type="button" id="pending-previous">上一页</button> <button type="button" id="pending-next">下一页</button></div>
+          </div>
+          <form id="link-player" class="migration-form" hidden>
+            <strong id="link-selected"></strong>
+            <label>目标群的新玩家标识 <input id="new-player" required maxlength="128" autocomplete="off"></label>
+            <button type="submit" class="primary" id="link-submit">关联玩家</button>
+          </form>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="reset-dialog" aria-labelledby="reset-title">
+    <form method="dialog">
+      <h2 id="reset-title">重置玩家冷却</h2>
+      <p id="reset-message"></p>
+      <p class="muted">玩家已有的收藏、最爱与愿望单会保留。</p>
+      <div class="dialog-actions">
+        <button value="cancel" autofocus>取消</button>
+        <button value="confirm" class="primary">确认重置</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="migration-dialog" aria-labelledby="confirm-title">
+    <form method="dialog">
+      <h2 id="confirm-title">确认关联</h2>
+      <p id="confirm-message"></p>
+      <div class="dialog-actions">
+        <button value="cancel" autofocus>取消</button>
+        <button value="confirm" class="primary">确认</button>
+      </div>
+    </form>
+  </dialog>
+</body>
+</html>
