@@ -206,7 +206,6 @@ class AnimeDrawPlugin(GameRuntime, DrawGame, ExchangeGame, Star):
         await self._remember(event, self._scope(event))
         menu_lines = [
             "抽卡 / ck　抽取群卡池角色",
-            "抽今日盟友　每日查看一名角色",
             "结婚 <短码>　收集抽到的角色",
             "离婚 <角色ID>",
             "最爱 <角色ID>",
@@ -232,7 +231,7 @@ class AnimeDrawPlugin(GameRuntime, DrawGame, ExchangeGame, Star):
             "刷新 <玩家ID>",
             "终极轮回"
         ]
-        actions = [("抽卡", "抽卡"), ("今日盟友", "抽今日盟友"), ("我的后宫", "我的后宫"),
+        actions = [("抽卡", "抽卡"), ("我的后宫", "我的后宫"),
                    ("愿望单", "愿望单"), ("群排行", "群排行")]
         async for result in self._render(event, "二次元抽抽乐", "\n".join(menu_lines), actions=actions):
             yield result
@@ -245,16 +244,6 @@ class AnimeDrawPlugin(GameRuntime, DrawGame, ExchangeGame, Star):
             return
         event.should_call_llm(True)
         async for result in self._draw(event):
-            yield result
-
-    @filter.command("抽今日盟友", alias={"今日盟友"})
-    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
-    async def handle_daily_ally(self, event: AstrMessageEvent):
-        """查看或抽取今日盟友。"""
-        if not self._game_enabled(event):
-            return
-        event.should_call_llm(True)
-        async for result in self._daily_ally(event):
             yield result
 
     @filter.command("结婚")

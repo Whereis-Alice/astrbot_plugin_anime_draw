@@ -108,32 +108,6 @@ class DrawGame:
             await self.store.put(key, [bucket, count + 1])
             await self.store.put(f"{gid}:last_draw", now)
 
-    async def _daily_ally(self, event: AstrMessageEvent):
-        gid = self._scope(event)
-        await self._remember(event, gid)
-        restored = await self._maybe_restore(event, gid)
-        if restored:
-            yield event.plain_result(restored)
-        uid = str(event.get_sender_id())
-        key = f"{gid}:{uid}:daily_ally"
-        today = datetime.datetime.now(GAME_TIMEZONE).date().isoformat()
-        async with self._get_group_lock(gid), self.store.transaction():
-            cached = await self.store.get(key, {})
-            char = self.char_manager.get_character_by_id(cached.get("cid")) if cached.get("date") == today else None
-            if not char:
-                config = await self.get_group_cfg(gid)
-                char = self.char_manager.get_random_character(limit=config.get("draw_scope"))
-                await self.store.put(key, {"date": today, "cid": char["id"]})
-        source = self.char_manager.get_works(char["id"])
-        lines = [f"{char['name']}（ID {char['id']}）"]
-        if source:
-            lines.append(f"关联作品：{source[0]}")
-        lines.append("每天 00:00（北京时间）更新。")
-        images = await self._images(gid, char)
-        actions = [("抽卡", "抽卡"), ("查看角色", f"查询 {char['id']}"), ("我的后宫", "我的后宫")]
-        async for result in self._render(event, "今日盟友", "\n".join(lines), images[0] if images else None, actions):
-            yield result
-
     async def _marry_command(self, event: AstrMessageEvent, code: str | None):
         reference = code or next(
             (part.id for part in event.message_obj.message or [] if isinstance(part, Comp.Reply) and part.id), None
