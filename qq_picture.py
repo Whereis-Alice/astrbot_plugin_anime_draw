@@ -1,10 +1,10 @@
 """Keep QQ chat previews small while preserving detail in the uploaded image."""
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from io import BytesIO
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 import aiohttp
 from PIL import Image, ImageOps
@@ -33,6 +33,7 @@ class Picture:
     inline: PictureFile | None
     width: int
     height: int
+    source_url: str = ""
 
 
 def _local_bytes(path: Path) -> bytes:
@@ -40,7 +41,7 @@ def _local_bytes(path: Path) -> bytes:
         return handle.read(MAX_BYTES + 1)
 
 
-async def _remote_bytes(url: str) -> bytes:
+async def _remote_image(url: str) -> tuple[bytes, str]:
     parsed = urlsplit(url)
     if (
         parsed.hostname not in CATALOG_HOSTS or parsed.port not in {None, 80, 443}
@@ -61,7 +62,7 @@ async def _remote_bytes(url: str) -> bytes:
                         result.extend(chunk)
                         if len(result) > MAX_BYTES:
                             raise ValueError("Image exceeds size limit")
-                    return bytes(result)
+                    return bytes(result), candidate
             except (aiohttp.ClientError, TimeoutError):
                 continue
     raise ValueError("Catalog image unavailable")
@@ -111,7 +112,12 @@ async def prepare_picture(image: str | Path) -> Picture:
     source = str(image)
     remote = source.startswith(("https://", "http://"))
     if remote:
-        data = await _remote_bytes(source)
+        data, source = await _remote_image(source)
     else:
         data = await asyncio.to_thread(_local_bytes, Path(source.removeprefix("file:///")))
-    return await asyncio.to_thread(_resize, data, preserve_original=remote)
+    picture = await asyncio.to_thread(_resize, data, preserve_original=remote)
+    if source.startswith("https://"):
+        # _remote_bytes has already validated the catalog host and credentials.
+        url = quote(source, safe=":/?&=%+#@;,~!$*_-")
+        return replace(picture, source_url=url)
+    return picture

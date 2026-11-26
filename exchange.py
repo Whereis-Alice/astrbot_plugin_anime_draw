@@ -1,5 +1,7 @@
 """Trading offers and their group-scoped acceptance."""
 
+import re
+
 from astrbot.api.event import AstrMessageEvent
 
 from . import qq_official as qq
@@ -7,12 +9,12 @@ from .game_runtime import DRAW_MSG_TTL, OFFICIAL_ACTION_TTL
 
 
 class ExchangeGame:
-    async def _exchange(self, event: AstrMessageEvent, my_cid: str | None, other_cid: str | None):
+    async def _exchange(self, event: AstrMessageEvent, my_cid: str, other_cid: str):
         if my_cid == "接受" and other_cid:
             response = await self._accept_exchange(event, other_cid)
             yield event.plain_result(response or "请求已过期，或只有被邀请的玩家可以接受。")
             return
-        if not all(value and value.isascii() and value.isdecimal() and len(value) <= 12 for value in (my_cid, other_cid)):
+        if not all(re.fullmatch(r"[0-9]{1,12}", str(value)) for value in (my_cid, other_cid)):
             yield event.plain_result("用法：交换 <我的角色ID> <对方角色ID>，或「交换 接受 短码」。")
             return
         my_cid, other_cid = str(int(my_cid)), str(int(other_cid))
@@ -34,18 +36,20 @@ class ExchangeGame:
             )
             my_name = (self.char_manager.get_character_by_id(my_cid) or {}).get("name", my_cid)
             other_name = (self.char_manager.get_character_by_id(other_cid) or {}).get("name", other_cid)
-            body = f"{my_name} ↔ {other_name}\n被邀请的玩家可在 {ttl} 秒内发送「交换 接受 {code}」。"
+            body = f"{my_name} ↔ {other_name}"
+            manual_hint = f"被邀请的玩家可在 {ttl} 秒内发送「交换 接受 {code}」。"
             if not official:
                 chain = [
                     {"type": "at", "data": {"qq": to_uid}},
-                    {"type": "text", "data": {"text": f" {body}\n也可以给这条消息贴表情。"}},
+                    {"type": "text", "data": {"text": f" {body}\n{manual_hint}\n也可以给这条消息贴表情。"}},
                 ]
                 msg_id = await self._onebot_send(event, chain)
                 if msg_id is not None:
                     self._actions[gid][str(msg_id)] = record
                     return
         async for result in self._render(
-            event, "交换邀请", body, actions=[("接受交换", f"交换 接受 {code}")], button_owner=to_uid
+            event, "交换邀请", body, actions=[("接受交换", f"交换 接受 {code}")],
+            button_owner=to_uid, manual_hint=manual_hint,
         ):
             yield result
 

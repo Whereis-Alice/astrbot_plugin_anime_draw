@@ -7,6 +7,8 @@ import base64
 import hashlib
 import random
 import re
+import time
+from collections import OrderedDict
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -24,6 +26,9 @@ OFFICIAL_PLATFORMS = frozenset({"qq_official", "qq_official_webhook"})
 MARKDOWN_SYNTAX = re.compile(r"([\\`*_{}\[\]()#+.!|<>~\-])")
 MEDIA_URL = re.compile(r"""qqbot-media://image/v1/[^\s()<>\[\]\\"']{1,1500}""")
 COS_HOST = re.compile(r"[a-z0-9-]+\.cos\.[a-z0-9-]+\.myqcloud\.com")
+IMAGE_QUOTA_EXCEEDED = 40035007
+_image_refs: OrderedDict[tuple[str, bool, str], tuple[float, str]] = OrderedDict()
+_image_quota_retry: dict[tuple[str, bool], float] = {}
 
 
 @dataclass(frozen=True)
@@ -189,6 +194,16 @@ async def _markdown_image(target: _Target, picture: PictureFile) -> str | None:
     """Upload the detailed picture to QQ's Markdown image storage."""
     md5 = hashlib.md5(picture.data, usedforsecurity=False).hexdigest()
     sha1 = hashlib.sha1(picture.data, usedforsecurity=False).hexdigest()
+    app_id = str(getattr(getattr(target.http, "_token", None), "app_id", "") or "")
+    app = (app_id, bool(getattr(target.http, "is_sandbox", False)))
+    key = (*app, sha1)
+    now = time.monotonic()
+    cached = _image_refs.get(key) if app_id else None
+    if cached and cached[0] > now:
+        _image_refs.move_to_end(key)
+        return cached[1]
+    if app_id and _image_quota_retry.get(app, 0) > now:
+        return None
     response = await _request(target, "/v2/media-images/prepare", {
         "file_name": f"anime-draw-{sha1[:24]}.{picture.extension}",
         "file_size": len(picture.data),
@@ -196,6 +211,9 @@ async def _markdown_image(target: _Target, picture: PictureFile) -> str | None:
         "md5": md5,
         "sha1": sha1,
     })
+    if response and response.code == IMAGE_QUOTA_EXCEEDED and app_id:
+        _image_quota_retry[app] = now + 300
+        logger.info("[二次元抽抽乐] QQ Markdown 图片额度暂不可用，优先使用缓存或卡池图源。")
     if response is None or not response.accepted or not response.document:
         return None
     upload_id = response.document.get("upload_id")
@@ -223,7 +241,18 @@ async def _markdown_image(target: _Target, picture: PictureFile) -> str | None:
     if completed is None or not completed.accepted or not completed.document:
         return None
     reference = completed.document.get("url")
-    return reference if isinstance(reference, str) and MEDIA_URL.fullmatch(reference) else None
+    if not isinstance(reference, str) or not MEDIA_URL.fullmatch(reference):
+        return None
+    ttl = completed.document.get("ttl")
+    if app_id:
+        # Refresh before the service expiry; use a short lifetime if absent.
+        seconds = min(ttl - 60, 86400) if isinstance(ttl, int) else 600
+        if seconds > 0:
+            _image_refs[key] = (time.monotonic() + seconds, reference)
+            _image_refs.move_to_end(key)
+            if len(_image_refs) > 512:
+                _image_refs.popitem(last=False)
+    return reference
 
 
 async def _upload_image(target: _Target, picture: Picture) -> str | None:
@@ -280,6 +309,8 @@ async def send_qq_reply(
                 reference = await _markdown_image(target, picture.inline)
         except TimeoutError:
             logger.debug("[二次元抽抽乐] QQ Markdown 图片上传超时。")
+    if not reference and picture and use_markdown:
+        reference = picture.source_url
     has_markdown = use_markdown and bool(text or markdown)
     if has_markdown:
         body = markdown if markdown is not None else escape_markdown(text).replace("\n", "  \n")
@@ -362,17 +393,22 @@ async def send(
     use_markdown: bool = True,
     use_buttons: bool = True,
     quote_line: str = "",
+    quote_footer: str = "",
     manual_hint: str = "",
 ) -> bool:
     """Format a game reply heading and preserve a readable plain-text fallback."""
     title = title.strip()
     body = body.strip()
     summary = " ".join(quote_line.splitlines()).strip()
-    text = "\n\n".join(part for part in (title, summary, body) if part)
+    footer = " ".join(quote_footer.splitlines()).strip()
+    text = "\n\n".join(part for part in (title, summary, body, footer) if part)
     markdown_title = f"## {escape_markdown(' '.join(title.splitlines()))}" if title else ""
     markdown_summary = f"> {escape_markdown(summary)}" if summary else ""
     markdown_body = escape_markdown(body).replace("\n", "  \n")
-    markdown = "\n\n".join(part for part in (markdown_title, markdown_summary, markdown_body) if part)
+    markdown_footer = f"> {escape_markdown(footer)}" if footer else ""
+    markdown = "\n\n".join(
+        part for part in (markdown_title, markdown_summary, markdown_body, markdown_footer) if part
+    )
     result = await send_qq_reply(
         event,
         text,

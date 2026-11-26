@@ -123,16 +123,16 @@ class GameRuntime:
 
     async def _render(
         self, event, title: str, body: str, image=None, actions=(), *,
-        button_owner=None, quote_line: str = "", manual_hint: str = "",
+        button_owner=None, quote_line: str = "", quote_footer: str = "", manual_hint: str = "",
     ):
         if await qq.send(
             event, title, body, image=image, actions=actions, button_owner=button_owner,
             use_markdown=self.config.get("official_markdown", True),
             use_buttons=self.config.get("official_buttons", True),
-            quote_line=quote_line, manual_hint=manual_hint,
+            quote_line=quote_line, quote_footer=quote_footer, manual_hint=manual_hint,
         ):
             return
-        chain = [Comp.Plain("\n".join(part for part in (title, quote_line, body, manual_hint) if part))]
+        chain = [Comp.Plain("\n".join(part for part in (title, quote_line, body, quote_footer, manual_hint) if part))]
         if image and event.get_platform_name() not in qq.OFFICIAL_PLATFORMS:
             chain.append(self._image_component(image))
         yield event.chain_result(chain)

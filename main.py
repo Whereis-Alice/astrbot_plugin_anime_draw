@@ -117,7 +117,7 @@ class AnimeDrawPlugin(GameRuntime, DrawGame, ExchangeGame, Star):
     @filter.command("抽抽乐迁移码")
     @filter.platform_adapter_type(PlatformAdapterType.AIOCQHTTP)
     @filter.event_message_type(filter.EventMessageType.PRIVATE_MESSAGE)
-    async def issue_migration_code(self, event: AstrMessageEvent, source_group: str | None = None):
+    async def issue_migration_code(self, event: AstrMessageEvent, source_group: str = ""):
         """私聊旧机器人，凭当前 QQ 账号取得自己的迁移码。"""
         if not self.config.get("migration_source_enabled", False):
             return
@@ -133,7 +133,7 @@ class AnimeDrawPlugin(GameRuntime, DrawGame, ExchangeGame, Star):
 
     @filter.command("抽抽乐认领")
     @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
-    async def claim_migration(self, event: AstrMessageEvent, code: str | None = None):
+    async def claim_migration(self, event: AstrMessageEvent, code: str = ""):
         """在新群验证迁移码并认领旧存档。"""
         if not self._game_enabled(event) or not self.config.get("migration_enabled", False):
             return
@@ -254,7 +254,7 @@ class AnimeDrawPlugin(GameRuntime, DrawGame, ExchangeGame, Star):
 
     @filter.command("结婚")
     @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
-    async def handle_marry(self, event: AstrMessageEvent, code: str | None = None):
+    async def handle_marry(self, event: AstrMessageEvent, code: str = ""):
         """使用抽卡短码或回复抽卡消息收集角色。"""
         if not self._game_enabled(event):
             return
@@ -375,23 +375,24 @@ class AnimeDrawPlugin(GameRuntime, DrawGame, ExchangeGame, Star):
             end_idx = start_idx + per_page
             lines.append(f"阵容总人气: {total_heat}")
             lines.extend(entries[start_idx:end_idx])
-            lines.append(f"(第{page}/{total_pages}页)")
             nav = []
             if page > 1:
                 nav.append(("上一页", f"我的后宫 {page - 1}"))
             if page < total_pages:
                 nav.append(("下一页", f"我的后宫 {page + 1}"))
-        async for result in self._render(event, "我的后宫", "\n".join(lines), actions=nav):
+        async for result in self._render(
+            event, "我的后宫", "\n".join(lines), actions=nav, quote_footer=f"第{page}/{total_pages}页",
+        ):
             yield result
 
     @filter.command("离婚")
     @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
-    async def handle_divorce(self, event: AstrMessageEvent, cid: str | None = None):
+    async def handle_divorce(self, event: AstrMessageEvent, cid: str = ""):
         """解除自己与指定角色的婚姻。"""
         if not self._game_enabled(event):
             return
         event.should_call_llm(True)
-        if not cid or not re.fullmatch(r"[0-9]{1,12}", cid):
+        if not re.fullmatch(r"[0-9]{1,12}", str(cid)):
             yield event.plain_result("用法：离婚 <角色ID>")
             return
         gid, uid, cid = self._scope(event), str(event.get_sender_id()), str(int(cid))
@@ -419,7 +420,7 @@ class AnimeDrawPlugin(GameRuntime, DrawGame, ExchangeGame, Star):
     @filter.command("交换")
     @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
     async def handle_exchange(
-        self, event: AstrMessageEvent, my_cid: str | None = None, other_cid: str | None = None
+        self, event: AstrMessageEvent, my_cid: str = "", other_cid: str = ""
     ):
         """发起交换或输入短码接受邀请。"""
         if not self._game_enabled(event):
@@ -581,7 +582,7 @@ class AnimeDrawPlugin(GameRuntime, DrawGame, ExchangeGame, Star):
 
     @filter.command("查询")
     @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
-    async def handle_query(self, event: AstrMessageEvent, cid: str | None = None, iid: str | None = None):
+    async def handle_query(self, event: AstrMessageEvent, cid: str = "", iid: str = ""):
         '''查询指定角色的信息，可选图片序号 iid（1 到 图片数量）'''
         if not self._game_enabled(event):
             return
@@ -595,16 +596,15 @@ class AnimeDrawPlugin(GameRuntime, DrawGame, ExchangeGame, Star):
                 return
         await self.put_kv_data(f"{gid}:last_query", time.time())
         event.should_call_llm(True)
-        if cid is None:
+        if not cid:
             yield event.plain_result("用法：查询 <角色ID> [图片序号]")
             return
 
         cid_str = str(cid).strip()
-        if cid_str.isdigit():
-            cid_int = int(cid_str)
-            char = self.char_manager.get_character_by_id(cid_int)
+        if cid_str.isdecimal():
+            char = self.char_manager.get_character_by_id(cid_str)
             if not char:
-                yield event.plain_result(f"未找到ID为 {cid_int} 的角色")
+                yield event.plain_result(f"未找到 ID 为 {cid_str} 的角色。")
                 return
             async for res in self.print_character_info(event, char, iid=iid):
                 yield res
@@ -614,12 +614,13 @@ class AnimeDrawPlugin(GameRuntime, DrawGame, ExchangeGame, Star):
                 yield res
                 return
 
-    async def print_character_info(self, event: AstrMessageEvent, char: dict, iid: str | None = None):
+    async def print_character_info(self, event: AstrMessageEvent, char: dict, iid: str | int | None = None):
         """展示角色出处、收集状态和图片。"""
         gid = self._scope(event)
         cid = str(char["id"])
         pool = await self._images(gid, char)
-        index = int(iid) if iid and iid.isascii() and iid.isdecimal() and len(iid) <= 6 else 0
+        photo = str(iid).strip() if iid is not None else ""
+        index = int(photo) if re.fullmatch(r"[0-9]{1,6}", photo) else 0
         specified = 1 <= index <= len(pool)
         if not specified:
             index = random.randint(1, len(pool)) if pool else 0
@@ -637,38 +638,42 @@ class AnimeDrawPlugin(GameRuntime, DrawGame, ExchangeGame, Star):
         wishes = await self.store.get(f"{gid}:{cid}:wished_by", [])
         base_heat = float(char.get("heat") or 0)
         heat = round(base_heat * (1.1 ** min(100, len(wishes))))
-        lines = [f"角色 ID：{cid}　｜　热度：{heat}"]
+        summary = f"角色 ID：{cid}　｜　热度：{heat}"
+        lines = []
         works = self.char_manager.get_works(cid)
         if not works and self.config.get("online_work_lookup", True):
             works = await self.char_manager.get_works_online(cid)
         if works:
-            lines.append("出处：" + "、".join(works[:3]))
+            lines.append(f"出处：{works[0]}")
+            lines.extend(f"　· {work}" for work in works[1:3])
         bonds = self.char_manager.get_bonds_for_character(cid)
         if bonds:
             lines.append("羁绊：" + "、".join(bonds))
         if owner:
             lines.append(f"已与 {await self._user_label(gid, str(owner))} 结婚。")
-        if image:
+        if image and len(pool) > 1:
             lines.append(f"图片 {index}/{len(pool)}")
-        elif pool:
+        elif not image and pool:
             lines.append("角色图片暂时无法加载。")
-        actions = [("许愿", f"许愿 {cid}"), ("抽卡", "抽卡")]
+        actions = [("许愿", f"许愿 {cid}"), ("抽卡", "抽卡"), ("我的后宫", "我的后宫")]
         if len(pool) > 1:
             actions.append(("下一张图", f"查询 {cid} {index % len(pool) + 1}"))
-        async for result in self._render(event, char["name"], "\n".join(lines), image, actions):
+        async for result in self._render(
+            event, char["name"], "\n".join(lines), image, actions, quote_line=summary,
+        ):
             yield result
 
     @filter.command("搜索")
     @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
-    async def handle_search(self, event: AstrMessageEvent, keyword: str | None = None):
+    async def handle_search(self, event: AstrMessageEvent, keyword: GreedyStr):
         '''搜索角色'''
         if not self._game_enabled(event):
             return
         event.should_call_llm(True)
+        keyword = str(keyword or "").strip()
         if not keyword:
             yield event.plain_result("用法：搜索 <角色名字/部分名字>")
             return
-        keyword = str(keyword).strip()
         matches = self.char_manager.search_characters_by_name(keyword)
         if not matches:
             yield event.plain_result(f"未找到名称包含“{keyword}”的角色")
@@ -677,11 +682,16 @@ class AnimeDrawPlugin(GameRuntime, DrawGame, ExchangeGame, Star):
             async for res in self.print_character_info(event, matches[0]):
                 yield res
             return
-        else:
-            top = matches[:10]
-            lines = [f"{c.get('name')} (ID: {c.get('id')})" for c in top]
-            more = "" if len(matches) <= len(top) else f"\n..."
-            yield event.plain_result("\n".join(lines) + more)
+        top = matches[:10]
+        lines = [f"{i}. {char['name']}　ID {char['id']}" for i, char in enumerate(top, 1)]
+        actions = [(f"查看 {i}", f"查询 {char['id']}") for i, char in enumerate(top[:5], 1)]
+        count = f"共 {len(matches)} 个结果"
+        if len(matches) > len(top):
+            count += f"，显示前 {len(top)} 个"
+        if len(top) > len(actions):
+            lines.append("其他角色可用「查询 角色ID」查看。")
+        async for result in self._render(event, "角色搜索", "\n".join(lines), actions=actions, quote_line=count):
+            yield result
 
     @filter.command("添加图片")
     @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
@@ -802,7 +812,7 @@ class AnimeDrawPlugin(GameRuntime, DrawGame, ExchangeGame, Star):
 
     @filter.command("强制离婚")
     @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
-    async def handle_force_divorce(self, event: AstrMessageEvent, cid: str | None = None):
+    async def handle_force_divorce(self, event: AstrMessageEvent, cid: str = ""):
         """解除指定角色的婚姻。"""
         if not self._game_enabled(event):
             return
@@ -811,7 +821,7 @@ class AnimeDrawPlugin(GameRuntime, DrawGame, ExchangeGame, Star):
         if group_role not in {"admin", "owner"} and str(event.get_sender_id()) not in self.super_admins:
             yield event.plain_result("无权限执行此命令。")
             return
-        if not cid or not re.fullmatch(r"[0-9]{1,12}", cid):
+        if not re.fullmatch(r"[0-9]{1,12}", str(cid)):
             yield event.plain_result("用法：强制离婚 <角色ID>")
             return
         gid, cid = self._scope(event), str(int(cid))
@@ -830,7 +840,7 @@ class AnimeDrawPlugin(GameRuntime, DrawGame, ExchangeGame, Star):
 
     @filter.command("清理后宫")
     @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
-    async def handle_clear_harem(self, event: AstrMessageEvent, uid: str | None = None):
+    async def handle_clear_harem(self, event: AstrMessageEvent, uid: str = ""):
         '''清理指定用户的后宫，最爱会被保留（管理员专用）'''
         if not self._game_enabled(event):
             return
@@ -842,7 +852,7 @@ class AnimeDrawPlugin(GameRuntime, DrawGame, ExchangeGame, Star):
         gid = self._scope(event)
         lock = self._get_group_lock(gid)
         async with lock, self.store.transaction():
-            if not uid or not re.fullmatch(ID_PATTERN, uid):
+            if not re.fullmatch(ID_PATTERN, str(uid)):
                 yield event.plain_result("用法：清理后宫 <玩家ID>")
                 return
             uid = str(uid).strip()
@@ -1015,7 +1025,7 @@ class AnimeDrawPlugin(GameRuntime, DrawGame, ExchangeGame, Star):
 
     @filter.command("刷新")
     @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
-    async def handle_refresh(self, event: AstrMessageEvent, user_id: str | None = None):
+    async def handle_refresh(self, event: AstrMessageEvent, user_id: str = ""):
         '''刷新指定用户的抽卡和结婚冷却（群主和超管专用）'''
         if not self._game_enabled(event):
             return
@@ -1024,7 +1034,7 @@ class AnimeDrawPlugin(GameRuntime, DrawGame, ExchangeGame, Star):
         if group_role not in ['owner'] and str(event.get_sender_id()) not in self.super_admins:
             yield event.plain_result("无权限执行此命令。")
             return
-        if not user_id or not re.fullmatch(ID_PATTERN, user_id):
+        if not re.fullmatch(ID_PATTERN, str(user_id)):
             yield event.plain_result("用法：刷新 <玩家ID>")
             return
         gid = self._scope(event)
