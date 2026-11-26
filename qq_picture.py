@@ -9,8 +9,8 @@ from urllib.parse import urlsplit
 import aiohttp
 from PIL import Image, ImageOps
 
-MAX_WIDTH = 480
-MAX_HEIGHT = 420
+MAX_WIDTH = 240
+MAX_HEIGHT = 200
 MAX_BYTES = 10 * 1024 * 1024
 MAX_PIXELS = 32_000_000
 CATALOG_HOSTS = frozenset({
