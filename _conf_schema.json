@@ -14,7 +14,7 @@
     "official_buttons": {
       "description": "QQ 官方机器人快捷按钮",
       "type": "bool",
-      "hint": "需要 QQ 开放平台授予相应消息权限。按钮不可用时可手动输入消息中的指令。",
+      "hint": "默认开启。关闭后继续发送 Markdown，只隐藏按钮并保留可手动输入的指令。按钮需要 QQ 开放平台权限。",
       "default": true
     },
     "migration_source_enabled": {

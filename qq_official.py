@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
 import random
 import re
 from collections.abc import Sequence
@@ -14,12 +15,15 @@ from urllib.parse import quote, urlsplit
 
 import aiohttp
 from astrbot.api import logger
-from astrbot.api.event import AstrMessageEvent, MessageChain
-from astrbot.api.message_components import Image
+from astrbot.api.event import AstrMessageEvent
+from PIL import Image as PILImage
+
+from .qq_picture import Picture, prepare_picture
 
 OFFICIAL_PLATFORMS = frozenset({"qq_official", "qq_official_webhook"})
-MAX_INLINE_IMAGE = 10 * 1024 * 1024
 MARKDOWN_SYNTAX = re.compile(r"([\\`*_{}\[\]()#+.!|<>~\-])")
+MEDIA_URL = re.compile(r"""qqbot-media://image/v1/[^\s()<>\[\]\\"']{1,1500}""")
+COS_HOST = re.compile(r"[a-z0-9-]+\.cos\.[a-z0-9-]+\.myqcloud\.com")
 
 
 @dataclass(frozen=True)
@@ -117,7 +121,8 @@ async def _request(target: _Target, endpoint: str, payload: dict[str, Any]) -> _
     http = target.http
     try:
         await http.check_session()
-        route = Route("POST", f"{target.endpoint}/{endpoint}", is_sandbox=http.is_sandbox)
+        path = endpoint if endpoint.startswith("/") else f"{target.endpoint}/{endpoint}"
+        route = Route("POST", path, is_sandbox=http.is_sandbox)
         session = http._session
         headers = dict(http._headers)
     except (
@@ -180,38 +185,52 @@ def _accepted_reply(event: AstrMessageEvent, response: _Response | None) -> QQRe
     return QQReply()
 
 
-def _local_image(path: Path) -> str:
-    with path.open("rb") as handle:
-        content = handle.read(MAX_INLINE_IMAGE + 1)
-    if not 0 < len(content) <= MAX_INLINE_IMAGE:
-        raise ValueError("QQ image exceeds the upload limit")
-    return base64.b64encode(content).decode("ascii")
-
-
-def _public_url(source: str) -> bool:
-    if not source.startswith(("https://", "http://")):
-        return False
-    try:
-        parsed = urlsplit(source)
-    except ValueError:
-        return False
-    return bool(parsed.hostname and not parsed.username and not parsed.password)
-
-
-async def _upload_image(target: _Target, image: str | Path) -> str | None:
-    source = str(image)
-    payload = {"file_type": 1, "srv_send_msg": False}
-    try:
-        if _public_url(source):
-            payload["url"] = source
-        else:
-            local_path = Path(source.removeprefix("file:///"))
-            payload["file_data"] = await asyncio.to_thread(_local_image, local_path)
-    except (OSError, ValueError) as exc:
-        logger.warning("[二次元抽抽乐] 角色图片读取失败（%s）", type(exc).__name__)
+async def _markdown_image(target: _Target, picture: Picture) -> str | None:
+    """Upload a bounded thumbnail to QQ's Markdown image storage."""
+    md5 = hashlib.md5(picture.data, usedforsecurity=False).hexdigest()
+    sha1 = hashlib.sha1(picture.data, usedforsecurity=False).hexdigest()
+    response = await _request(target, "/v2/media-images/prepare", {
+        "file_name": f"anime-draw-{sha1[:24]}.{picture.extension}",
+        "file_size": len(picture.data),
+        "content_type": picture.content_type,
+        "md5": md5,
+        "sha1": sha1,
+    })
+    if response is None or not response.accepted or not response.document:
         return None
+    upload_id = response.document.get("upload_id")
+    url = response.document.get("presigned_url")
+    if not isinstance(upload_id, str) or not 0 < len(upload_id) <= 1024 or not isinstance(url, str) or len(url) > 10000:
+        return None
+    try:
+        parsed = urlsplit(url)
+        if (
+            parsed.scheme != "https" or not COS_HOST.fullmatch(parsed.hostname or "")
+            or parsed.port not in {None, 443} or parsed.username or parsed.password
+            or parsed.fragment or not parsed.query
+        ):
+            return None
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=8)) as session:
+            async with session.put(
+                url, data=picture.data, headers={"Content-Type": picture.content_type}, allow_redirects=False,
+            ) as uploaded:
+                etag = uploaded.headers.get("ETag", "").strip().strip('"').lower()
+                if not 200 <= uploaded.status < 300 or etag != md5:
+                    return None
+    except (aiohttp.ClientError, OSError, ValueError, TimeoutError):
+        return None
+    completed = await _request(target, "/v2/media-images/complete", {"upload_id": upload_id, "md5": md5})
+    if completed is None or not completed.accepted or not completed.document:
+        return None
+    reference = completed.document.get("url")
+    return reference if isinstance(reference, str) and MEDIA_URL.fullmatch(reference) else None
 
-    response = await _request(target, "files", payload)
+
+async def _upload_image(target: _Target, picture: Picture) -> str | None:
+    response = await _request(target, "files", {
+        "file_type": 1, "srv_send_msg": False,
+        "file_data": base64.b64encode(picture.data).decode("ascii"),
+    })
     if response is not None and response.accepted and response.document:
         file_info = response.document.get("file_info")
         if isinstance(file_info, str) and file_info:
@@ -223,28 +242,12 @@ async def _upload_image(target: _Target, image: str | Path) -> str | None:
     return None
 
 
-async def _supplement_image(event: AstrMessageEvent, target: _Target, image: str | Path) -> None:
-    if target.uses_v2:
-        file_info = await _upload_image(target, image)
-        if file_info:
-            response = await _send(target, {"msg_type": 7, "media": {"file_info": file_info}})
-            if response is not None and not response.accepted:
-                logger.warning(
-                    "[二次元抽抽乐] QQ 图片发送失败（状态 %s，代码 %s）",
-                    response.status,
-                    response.code,
-                )
-        return
-    source = str(image)
-    component = (
-        Image.fromURL(source)
-        if _public_url(source)
-        else Image.fromFileSystem(source.removeprefix("file:///"))
-    )
+async def _prepare_picture(image: str | Path) -> Picture | None:
     try:
-        await event.send(MessageChain(chain=[component]))
-    except (OSError, ValueError, RuntimeError, aiohttp.ClientError) as exc:
-        logger.warning("[二次元抽抽乐] QQ 频道图片发送失败（%s）", type(exc).__name__)
+        return await prepare_picture(image)
+    except (OSError, ValueError, PILImage.DecompressionBombError, aiohttp.ClientError, TimeoutError) as exc:
+        logger.debug("[二次元抽抽乐] QQ 图片预处理失败（%s）", type(exc).__name__)
+        return None
 
 
 async def send_qq_reply(
@@ -259,14 +262,33 @@ async def send_qq_reply(
     use_buttons: bool = True,
 ) -> QQReply:
     """Send an official QQ reply, returning its id for reply-to-result commands."""
-    target = _reply_target(event)
-    if target is None:
+    if event.get_platform_name() not in OFFICIAL_PLATFORMS:
         return QQReply()
 
     footer = "快捷指令 " + " · ".join(command for _, command in actions[:5]) if actions else ""
     plain = "\n\n".join(part for part in (text.strip(), footer) if part)
-    if use_markdown and (text or markdown):
+    target = _reply_target(event)
+    picture = await _prepare_picture(image) if image else None
+    if target is None:
+        return QQReply()
+
+    reference = None
+    if picture and use_markdown:
+        try:
+            async with asyncio.timeout(10):
+                reference = await _markdown_image(target, picture)
+        except TimeoutError:
+            logger.debug("[二次元抽抽乐] QQ Markdown 图片上传超时。")
+    has_markdown = use_markdown and bool(text or markdown)
+    if has_markdown:
         body = markdown if markdown is not None else escape_markdown(text).replace("\n", "  \n")
+        if reference:
+            body = f"{body.rstrip()}\n\n![角色图片 #{picture.width}px #{picture.height}px]({reference})"
+        elif picture:
+            # Keep the text and image together when inline media is unavailable.
+            result = await _media_reply(event, target, plain, picture)
+            if result.handled:
+                return result
         owner = button_owner if button_owner is not None else str(event.get_sender_id() or "")
         payload = {"msg_type": 2, "markdown": {"content": body.rstrip() + "\n"}}
         if use_buttons and actions:
@@ -291,29 +313,30 @@ async def send_qq_reply(
             )
         result = _accepted_reply(event, response)
         if result.handled:
-            if result.delivered and image:
-                await _supplement_image(event, target, image)
             return result
         if response is not None and response.status:
             logger.debug(
                 "[二次元抽抽乐] QQ 改用普通消息（状态 %s，代码 %s）", response.status, response.code
             )
 
-    if image and target.uses_v2:
-        file_info = await _upload_image(target, image)
-        if file_info:
-            payload = {"msg_type": 7, "media": {"file_info": file_info}}
-            if plain:
-                payload["content"] = plain
-            result = _accepted_reply(event, await _send(target, payload))
-            if result.handled:
-                return result
+    if picture and (reference or not has_markdown):
+        result = await _media_reply(event, target, plain, picture)
+        if result.handled:
+            return result
     if not plain:
         return QQReply()
-    result = _accepted_reply(event, await _send(target, {"msg_type": 0, "content": plain}))
-    if result.delivered and image and not target.uses_v2:
-        await _supplement_image(event, target, image)
-    return result
+    return _accepted_reply(event, await _send(target, {"msg_type": 0, "content": plain}))
+
+
+async def _media_reply(event: AstrMessageEvent, target: _Target, text: str, picture: Picture) -> QQReply:
+    if not target.uses_v2:
+        return QQReply()
+    file_info = await _upload_image(target, picture)
+    if not file_info:
+        return QQReply()
+    return _accepted_reply(event, await _send(target, {
+        "msg_type": 7, "content": text, "media": {"file_info": file_info},
+    }))
 
 
 async def send_qq_markdown(

@@ -118,7 +118,7 @@ class GameRuntime:
         ):
             return
         chain = [Comp.Plain(f"{title}\n{body}" if title else body)]
-        if image:
+        if image and event.get_platform_name() not in qq.OFFICIAL_PLATFORMS:
             chain.append(self._image_component(image))
         yield event.chain_result(chain)
 
