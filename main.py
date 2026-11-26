@@ -599,15 +599,24 @@ class AnimeDrawPlugin(GameRuntime, DrawGame, ExchangeGame, Star):
                 return
 
     async def print_character_info(self, event: AstrMessageEvent, char: dict, iid: str | None = None):
-        """展示角色、关联作品、收集状态和图片。"""
+        """展示角色出处、收集状态和图片。"""
         gid = self._scope(event)
         cid = str(char["id"])
         pool = await self._images(gid, char)
-        index = 0
-        if pool:
-            index = int(iid) if iid and iid.isascii() and iid.isdecimal() and len(iid) <= 6 else 0
-            if not 1 <= index <= len(pool):
-                index = random.randint(1, len(pool))
+        index = int(iid) if iid and iid.isascii() and iid.isdecimal() and len(iid) <= 6 else 0
+        specified = 1 <= index <= len(pool)
+        if not specified:
+            index = random.randint(1, len(pool)) if pool else 0
+        image = pool[index - 1] if index else None
+        if image and event.get_platform_name() in qq.OFFICIAL_PLATFORMS:
+            candidates = [index]
+            if not specified:
+                candidates.extend(i for i in range(1, min(len(pool), 3) + 1) if i != index)
+            for i in candidates[:3]:
+                image = await qq.prepare_reply_picture(pool[i - 1])
+                if image:
+                    index = i
+                    break
         owner = await self.store.get(f"{gid}:{cid}:married_to")
         wishes = await self.store.get(f"{gid}:{cid}:wished_by", [])
         base_heat = float(char.get("heat") or 0)
@@ -617,18 +626,20 @@ class AnimeDrawPlugin(GameRuntime, DrawGame, ExchangeGame, Star):
         if not works and self.config.get("online_work_lookup", True):
             works = await self.char_manager.get_works_online(cid)
         if works:
-            lines.append("关联作品：" + "、".join(works[:3]))
+            lines.append("出处：" + "、".join(works[:3]))
         bonds = self.char_manager.get_bonds_for_character(cid)
         if bonds:
             lines.append("羁绊：" + "、".join(bonds))
         if owner:
             lines.append(f"已与 {await self._user_label(gid, str(owner))} 结婚。")
-        if index:
+        if image:
             lines.append(f"图片 {index}/{len(pool)}")
+        elif pool:
+            lines.append("角色图片暂时无法加载。")
         actions = [("许愿", f"许愿 {cid}"), ("抽卡", "抽卡")]
         if len(pool) > 1:
             actions.append(("下一张图", f"查询 {cid} {index % len(pool) + 1}"))
-        async for result in self._render(event, char["name"], "\n".join(lines), pool[index - 1] if index else None, actions):
+        async for result in self._render(event, char["name"], "\n".join(lines), image, actions):
             yield result
 
     @filter.command("搜索")
@@ -647,10 +658,8 @@ class AnimeDrawPlugin(GameRuntime, DrawGame, ExchangeGame, Star):
             yield event.plain_result(f"未找到名称包含“{keyword}”的角色")
             return
         if len(matches) == 1:
-            char = matches[0]
-            async for res in self.print_character_info(event, char):
+            async for res in self.print_character_info(event, matches[0]):
                 yield res
-                return
             return
         else:
             top = matches[:10]

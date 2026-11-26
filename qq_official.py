@@ -18,7 +18,7 @@ from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent
 from PIL import Image as PILImage
 
-from .qq_picture import Picture, prepare_picture
+from .qq_picture import Picture, PictureFile, prepare_picture
 
 OFFICIAL_PLATFORMS = frozenset({"qq_official", "qq_official_webhook"})
 MARKDOWN_SYNTAX = re.compile(r"([\\`*_{}\[\]()#+.!|<>~\-])")
@@ -185,8 +185,8 @@ def _accepted_reply(event: AstrMessageEvent, response: _Response | None) -> QQRe
     return QQReply()
 
 
-async def _markdown_image(target: _Target, picture: Picture) -> str | None:
-    """Upload a bounded thumbnail to QQ's Markdown image storage."""
+async def _markdown_image(target: _Target, picture: PictureFile) -> str | None:
+    """Upload the detailed picture to QQ's Markdown image storage."""
     md5 = hashlib.md5(picture.data, usedforsecurity=False).hexdigest()
     sha1 = hashlib.sha1(picture.data, usedforsecurity=False).hexdigest()
     response = await _request(target, "/v2/media-images/prepare", {
@@ -229,7 +229,7 @@ async def _markdown_image(target: _Target, picture: Picture) -> str | None:
 async def _upload_image(target: _Target, picture: Picture) -> str | None:
     response = await _request(target, "files", {
         "file_type": 1, "srv_send_msg": False,
-        "file_data": base64.b64encode(picture.data).decode("ascii"),
+        "file_data": base64.b64encode(picture.preview.data).decode("ascii"),
     })
     if response is not None and response.accepted and response.document:
         file_info = response.document.get("file_info")
@@ -242,7 +242,7 @@ async def _upload_image(target: _Target, picture: Picture) -> str | None:
     return None
 
 
-async def _prepare_picture(image: str | Path) -> Picture | None:
+async def prepare_reply_picture(image: str | Path) -> Picture | None:
     try:
         return await prepare_picture(image)
     except (OSError, ValueError, PILImage.DecompressionBombError, aiohttp.ClientError, TimeoutError) as exc:
@@ -256,7 +256,7 @@ async def send_qq_reply(
     *,
     markdown: str | None = None,
     actions: Sequence[tuple[str, str]] = (),
-    image: str | Path | None = None,
+    image: str | Path | Picture | None = None,
     button_owner: str | None = None,
     use_markdown: bool = True,
     use_buttons: bool = True,
@@ -269,15 +269,15 @@ async def send_qq_reply(
     footer = manual_hint or ("快捷指令 " + " · ".join(command for _, command in actions[:5]) if actions else "")
     plain = "\n\n".join(part for part in (text.strip(), footer) if part)
     target = _reply_target(event)
-    picture = await _prepare_picture(image) if image else None
     if target is None:
         return QQReply()
+    picture = image if isinstance(image, Picture) else (await prepare_reply_picture(image) if image else None)
 
     reference = None
-    if picture and use_markdown:
+    if picture and picture.inline and use_markdown:
         try:
             async with asyncio.timeout(10):
-                reference = await _markdown_image(target, picture)
+                reference = await _markdown_image(target, picture.inline)
         except TimeoutError:
             logger.debug("[二次元抽抽乐] QQ Markdown 图片上传超时。")
     has_markdown = use_markdown and bool(text or markdown)
@@ -355,7 +355,7 @@ async def send(
     event: AstrMessageEvent,
     title: str,
     body: str,
-    image: str | Path | None = None,
+    image: str | Path | Picture | None = None,
     actions: Sequence[tuple[str, str]] = (),
     *,
     button_owner: str | None = None,
