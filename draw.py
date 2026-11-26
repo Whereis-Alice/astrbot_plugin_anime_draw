@@ -76,7 +76,7 @@ class DrawGame:
                 lines.append(f"已与 {await self._user_label(gid, str(owner))} 结婚。")
             if wishers and (not owner or contest):
                 lines.append(f"{len(wishers)} 位玩家许愿了这个角色。")
-            actions = [("再抽一次", "抽卡")]
+            actions = [("再抽一次", "抽卡"), ("我的后宫", "我的后宫")]
             manual_hint = ""
             if not owner or contest:
                 code, record = self._new_action(gid, "draw", ttl, cid=cid, owner=owner)
