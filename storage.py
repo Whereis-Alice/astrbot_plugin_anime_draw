@@ -80,6 +80,15 @@ class GameStore:
         async with self._connection() as db:
             await db.execute("DELETE FROM game WHERE key = ?", (key,))
 
+    async def reset_draw_counts(self, scope: str) -> None:
+        """Remove every draw counter under the group's key prefix."""
+        suffix = ":draw_status"
+        async with self._connection() as db:
+            await db.execute(
+                "DELETE FROM game WHERE substr(key, 1, ?) = ? AND substr(key, -?) = ?",
+                (len(scope) + 1, f"{scope}:", len(suffix), suffix),
+            )
+
     async def snapshot(self) -> dict:
         async with self._connection() as db:
             async with db.execute("SELECT key, value FROM game ORDER BY key") as cursor:

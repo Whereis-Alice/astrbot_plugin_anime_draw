@@ -226,6 +226,7 @@ class AnimeDrawPlugin(GameRuntime, DrawGame, ExchangeGame, Star):
             "删除许愿 <角色ID>",
             "",
             "群管理员",
+            "重置抽卡次数（全群）",
             "系统设置 <功能> <参数>",
             "系统设置 可抽卡时间范围 HH:mm-HH:mm",
             "清理后宫 <玩家ID>",
@@ -965,6 +966,27 @@ class AnimeDrawPlugin(GameRuntime, DrawGame, ExchangeGame, Star):
             yield event.plain_result(f"可抽卡时间范围已设置为 {start_time} ～ {end_time}")
         else:
             yield event.chain_result([Comp.Plain("\n".join(menu_lines))])
+
+    @filter.command("重置抽卡次数")
+    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
+    async def handle_reset_draw_count(self, event: AstrMessageEvent):
+        """管理员重置当前群所有玩家的每小时抽卡次数。"""
+        if not self._game_enabled(event):
+            return
+        event.should_call_llm(True)
+        sender = str(event.get_sender_id())
+        if not event.is_admin() and sender not in self.super_admins:
+            if await self.get_group_role(event) not in {"admin", "owner"}:
+                yield event.plain_result("只有管理员可以重置抽卡次数。")
+                return
+
+        if len(event.get_message_str().split()) != 1:
+            yield event.plain_result("直接发送「重置抽卡次数」即可重置本群所有玩家的次数。")
+            return
+        gid = self._scope(event)
+        async with self._get_group_lock(gid):
+            await self.store.reset_draw_counts(gid)
+        yield event.plain_result("已重置本群所有玩家的抽卡次数。")
 
     @filter.command("刷新")
     @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
