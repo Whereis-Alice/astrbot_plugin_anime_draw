@@ -12,6 +12,7 @@ import astrbot.api.message_components as Comp
 from astrbot.api import AstrBotConfig, logger
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star, StarTools
+from astrbot.core.star.filter.command import GreedyStr
 from astrbot.core.star.filter.platform_adapter_type import PlatformAdapterType
 
 from . import qq_official as qq
@@ -221,9 +222,9 @@ class AnimeDrawPlugin(GameRuntime, DrawGame, ExchangeGame, Star):
             "清除图片 <角色ID>",
             "交换 <我的角色ID> <对方角色ID>",
             "交换 接受 <短码>",
-            "许愿 <角色ID>",
+            "许愿 <角色名或ID>",
             "愿望单",
-            "删除许愿 <角色ID>",
+            "删除许愿 <角色名或ID>",
             "",
             "群管理员",
             "重置抽卡次数（全群）",
@@ -459,45 +460,61 @@ class AnimeDrawPlugin(GameRuntime, DrawGame, ExchangeGame, Star):
             msg_chain.insert(0, Comp.Reply(id=str(cmd_msg_id)))
         yield event.chain_result(msg_chain)
 
+    def _resolve_wish_target(self, target: str, command: str) -> tuple[str, str]:
+        target = str(target or "").strip()
+        if not target:
+            return "", f"用法：{command} <角色名或ID>"
+        if target.isdecimal():
+            char = self.char_manager.get_character_by_id(target)
+            if char:
+                return str(char["id"]), char["name"]
+            if command == "删除许愿":
+                return target, target
+            return "", f"未找到 ID 为 {target} 的角色。"
+        matches = self.char_manager.match_character_name(target)
+        if not matches:
+            return "", f"未找到「{target}」匹配的角色。"
+        if len(matches) == 1:
+            return str(matches[0]["id"]), matches[0]["name"]
+        lines = [f"找到 {len(matches)} 个匹配角色，请使用「{command} 角色ID」选择："]
+        for char in matches[:5]:
+            cid = char["id"]
+            work = self.char_manager.get_works(cid)
+            source = f" · {work[0]}" if work else ""
+            lines.append(f"{char['name']} · ID {cid}{source}")
+        return "", "\n".join(lines)
+
     @filter.command("许愿")
     @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
-    async def handle_wish(self, event: AstrMessageEvent, cid: str | None = None):
-        '''许愿指定角色，稍稍增加概率'''
+    async def handle_wish(self, event: AstrMessageEvent, target: GreedyStr):
+        """按角色名或 ID 许愿。"""
         if not self._game_enabled(event):
             return
         event.should_call_llm(True)
         gid = self._scope(event)
         user_id = str(event.get_sender_id())
-        config = await self.get_group_cfg(gid)
-        if cid is None or not str(cid).strip().isdigit():
-            yield event.plain_result("用法：许愿 <角色ID>")
-            return
-        cid = str(cid).strip()
-        char = self.char_manager.get_character_by_id(cid)
-        if not char:
-            yield event.plain_result(f"未找到ID为 {cid} 的角色")
+        cid, name = self._resolve_wish_target(target, "许愿")
+        if not cid:
+            yield event.plain_result(name)
             return
         wish_list_key = f"{gid}:{user_id}:wish_list"
         async with self._get_group_lock(gid), self.store.transaction():
-            wish_list = await self.get_kv_data(wish_list_key, [])
-            if cid not in wish_list and len(wish_list) >= config.get("harem_max_size", self.harem_max_size_default):
-                yield event.chain_result([
-                    Comp.Reply(id=str(event.message_obj.message_id)),
-                    Comp.Plain(f"愿望单已满"),
-                ])
-                return
-            if cid not in wish_list:
-                wish_list.append(cid)
-                await self.put_kv_data(wish_list_key, wish_list)
-            wished_by_key = f"{gid}:{cid}:wished_by"
-            wished_by = await self.get_kv_data(wished_by_key, [])
-            if user_id not in wished_by:
-                wished_by.append(user_id)
-                await self.put_kv_data(wished_by_key, wished_by)
-        yield event.chain_result([
-            Comp.Reply(id=str(event.message_obj.message_id)),
-            Comp.Plain(f"已许愿 {char.get('name')}"),
-        ])
+            config = await self.get_group_cfg(gid)
+            wish_list = list(dict.fromkeys(map(str, await self.get_kv_data(wish_list_key, []))))
+            cap = config.get("harem_max_size", self.harem_max_size_default)
+            if cid not in wish_list and len(wish_list) >= cap:
+                message = "愿望单已满。"
+            else:
+                if cid in wish_list:
+                    message = f"你已经许愿过 {name}。"
+                else:
+                    await self.put_kv_data(wish_list_key, [*wish_list, cid])
+                    message = f"已许愿 {name}。"
+                wished_by_key = f"{gid}:{cid}:wished_by"
+                wished_by = list(dict.fromkeys(map(str, await self.get_kv_data(wished_by_key, []))))
+                if user_id not in wished_by:
+                    await self.put_kv_data(wished_by_key, [*wished_by, user_id])
+        yield event.plain_result(message)
 
     @filter.command("愿望单")
     @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
@@ -535,22 +552,23 @@ class AnimeDrawPlugin(GameRuntime, DrawGame, ExchangeGame, Star):
 
     @filter.command("删除许愿")
     @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
-    async def handle_wish_clear(self, event: AstrMessageEvent, cid: str | None = None):
-        '''从愿望单中删除指定角色'''
+    async def handle_wish_clear(self, event: AstrMessageEvent, target: GreedyStr):
+        """按角色名或 ID 删除许愿。"""
         if not self._game_enabled(event):
             return
         event.should_call_llm(True)
         gid = self._scope(event)
         user_id = str(event.get_sender_id())
-        if cid is None or not str(cid).strip().isdigit():
-            yield event.plain_result("用法：删除许愿 <角色ID>")
+        cid, name = self._resolve_wish_target(target, "删除许愿")
+        if not cid:
+            yield event.plain_result(name)
             return
-        cid = str(cid).strip()
         wish_list_key = f"{gid}:{user_id}:wish_list"
         async with self._get_group_lock(gid), self.store.transaction():
             wish_list = await self.get_kv_data(wish_list_key, [])
-            wish_list = [x for x in wish_list if str(x) != cid]
-            await self.put_kv_data(wish_list_key, wish_list)
+            remaining = [x for x in wish_list if str(x) != cid]
+            if remaining != wish_list:
+                await self.put_kv_data(wish_list_key, remaining)
             wished_by_key = f"{gid}:{cid}:wished_by"
             wished_by = await self.get_kv_data(wished_by_key, [])
             wished_by = [uid for uid in wished_by if str(uid) != user_id]
@@ -558,10 +576,8 @@ class AnimeDrawPlugin(GameRuntime, DrawGame, ExchangeGame, Star):
                 await self.put_kv_data(wished_by_key, wished_by)
             else:
                 await self.delete_kv_data(wished_by_key)
-        yield event.chain_result([
-            Comp.Reply(id=str(event.message_obj.message_id)),
-            Comp.Plain(f"已从愿望单移除"),
-        ])
+        message = f"已从愿望单移除 {name}。" if remaining != wish_list else f"你的愿望单里没有 {name}。"
+        yield event.plain_result(message)
 
     @filter.command("查询")
     @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)

@@ -1,7 +1,7 @@
 name: astrbot_plugin_anime_draw
 display_name: 二次元抽抽乐
 desc: QQ 群角色集卡游戏，支持 QQ 官方机器人 Markdown 与快捷按钮、OneBot、旧档迁移和数据管理。
-version: v1.0.8
+version: v1.0.9
 author: Whereis-Alice
 repo: https://github.com/Whereis-Alice/astrbot_plugin_anime_draw
 astrbot_version: ">=4.16,<5"

@@ -1,5 +1,7 @@
 import json
 import random
+import re
+import unicodedata
 from pathlib import Path
 
 from .work_sources import WorkSources
@@ -148,4 +150,23 @@ class CharacterManager:
             alias = str(c.get("alias", "")).lower()
             return key_lower in name or key_lower in alias
         return [c for c in chars if matches(c)]
+
+    def match_character_name(self, keyword: str) -> list[dict]:
+        """Prefer exact names and aliases, then return partial matches."""
+        def normalize(value: str) -> str:
+            return " ".join(unicodedata.normalize("NFKC", value).casefold().split())
+
+        query = normalize(keyword)
+        if not query:
+            return []
+        exact = []
+        partial = []
+        for character in self.load_characters():
+            fields = [normalize(character.get(field) or "") for field in ("name", "alias")]
+            names = [part.strip() for field in fields for part in re.split(r"[/|、]", field)]
+            if query in fields or query in names:
+                exact.append(character)
+            elif any(query in field for field in fields):
+                partial.append(character)
+        return exact or partial
 
