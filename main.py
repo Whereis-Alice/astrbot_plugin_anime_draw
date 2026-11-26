@@ -63,19 +63,23 @@ class AnimeDrawPlugin(GameRuntime, DrawGame, ExchangeGame, Star):
         if not self.config.get("migration_enabled", False):
             return ""
         uid = str(event.get_sender_id())
+        platform = event.get_platform_name()
+        allow_name = self.config.get("migration_match_names", False) and platform in qq.OFFICIAL_PLATFORMS
         async with self._get_group_lock(gid):
             notice_key = f"{gid}:{uid}:migration_notice"
-            if await self.store.get(notice_key):
+            prior = await self.store.get(notice_key)
+            name = self._event_nickname(event) if allow_name else ""
+            if allow_name and not name:
+                name = await self.store.get(self.migration.official_nickname_key(gid, uid), "")
+            if isinstance(prior, dict) and (prior.get("linked") or prior.get("candidate") == [allow_name, name]):
                 return ""
-            sender = getattr(event.message_obj, "sender", None)
-            name = getattr(sender, "nickname", None)
             result = await self.migration.try_link(
-                gid, uid, name, allow_name=self.config.get("migration_match_names", False),
-                verified_qq=event.get_platform_name() == "aiocqhttp",
+                gid, uid, name, allow_name=allow_name,
+                verified_qq=platform == "aiocqhttp",
             )
             if result.status in {"not_mapped", "already_linked"}:
                 return ""
-            await self.store.put(notice_key, True)
+            await self.store.put(notice_key, {"candidate": [allow_name, name], "linked": result.status == "linked"})
         if result.status == "linked":
             return result.message
         return f"{result.message}\n认领指令：抽抽乐认领 <迁移码>"

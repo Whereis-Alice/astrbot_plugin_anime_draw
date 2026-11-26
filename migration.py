@@ -373,6 +373,11 @@ class Migration:
         return str(uid).startswith("held-")
 
     @staticmethod
+    def official_nickname_key(scope: str, uid: str) -> str:
+        platform, _, _ = scope.partition("|")
+        return f"migration:official_nickname:{platform}:{uid}"
+
+    @staticmethod
     def is_archive_image(path: str) -> bool:
         return bool(_IMAGE_NAME.fullmatch(path))
 
@@ -701,9 +706,11 @@ class Migration:
                 return LinkResult("already_linked", "")
             if verified_qq and uid in target["held"]:
                 return await self._link(scope, uid, uid, target)
+            if verified_qq:
+                return LinkResult("no_match", "没有找到当前 QQ 账号在旧群的存档。")
             name = _match_name(sender_name)
             if not allow_name or not name or name == _match_name(uid):
-                return LinkResult("no_name", "暂未自动找回旧存档。请使用一次性认领码，或联系管理员核对账号。")
+                return LinkResult("no_name", "这次消息没有可匹配的 QQ 昵称。可以用认领码找回旧存档，或请管理员核对。")
             data = await self.store.get(_source_key(target["source_group"]))
             matches = [
                 old_uid for old_uid, profile in data["profiles"].items()

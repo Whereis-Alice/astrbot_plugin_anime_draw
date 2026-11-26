@@ -32,7 +32,7 @@
     "migration_match_names": {
       "description": "允许首次抽卡按同名自动认领",
       "type": "bool",
-      "hint": "只有平台提供的昵称唯一匹配时才使用。昵称可修改，默认关闭；QQ 官方群消息通常无昵称。",
+      "hint": "用 QQ 官方消息提供的昵称与旧 QQ 昵称或群名片做唯一匹配。当前消息缺昵称时使用同一机器人先前收到的昵称。昵称可修改，本项默认关闭。",
       "default": false
     },
     "online_work_lookup": {

@@ -61,10 +61,21 @@ class GameRuntime:
             users = await self.get_user_list(gid)
             if uid not in users:
                 await self.store.put(f"{gid}:user_list", sorted(users | {uid}))
-            sender = getattr(event.message_obj, "sender", None)
-            name = str(getattr(sender, "nickname", "") or "").strip()[:100]
-            if name and name != uid:
+            name = self._event_nickname(event)
+            if name:
                 await self.store.put(f"{gid}:{uid}:display_name", name)
+                if (
+                    event.get_platform_name() in qq.OFFICIAL_PLATFORMS
+                    and self.config.get("migration_enabled", False)
+                    and self.config.get("migration_match_names", False)
+                ):
+                    await self.store.put(self.migration.official_nickname_key(gid, uid), name)
+
+    @staticmethod
+    def _event_nickname(event: AstrMessageEvent) -> str:
+        sender = getattr(event.message_obj, "sender", None)
+        name = str(getattr(sender, "nickname", "") or "").strip()[:100]
+        return name if name and name.casefold() != str(event.get_sender_id()).casefold() else ""
 
     async def _user_label(self, gid: str, uid: str) -> str:
         cached = await self.store.get(f"{gid}:{uid}:display_name")
