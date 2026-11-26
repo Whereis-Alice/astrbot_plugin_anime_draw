@@ -110,14 +110,18 @@ class GameRuntime:
         images.extend(str(path) for value in paths if (path := self._custom_path(value)))
         return images
 
-    async def _render(self, event, title: str, body: str, image=None, actions=(), *, button_owner=None):
+    async def _render(
+        self, event, title: str, body: str, image=None, actions=(), *,
+        button_owner=None, quote_line: str = "", manual_hint: str = "",
+    ):
         if await qq.send(
             event, title, body, image=image, actions=actions, button_owner=button_owner,
             use_markdown=self.config.get("official_markdown", True),
             use_buttons=self.config.get("official_buttons", True),
+            quote_line=quote_line, manual_hint=manual_hint,
         ):
             return
-        chain = [Comp.Plain(f"{title}\n{body}" if title else body)]
+        chain = [Comp.Plain("\n".join(part for part in (title, quote_line, body, manual_hint) if part))]
         if image and event.get_platform_name() not in qq.OFFICIAL_PLATFORMS:
             chain.append(self._image_component(image))
         yield event.chain_result(chain)

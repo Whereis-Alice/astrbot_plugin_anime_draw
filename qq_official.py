@@ -260,12 +260,13 @@ async def send_qq_reply(
     button_owner: str | None = None,
     use_markdown: bool = True,
     use_buttons: bool = True,
+    manual_hint: str = "",
 ) -> QQReply:
     """Send an official QQ reply, returning its id for reply-to-result commands."""
     if event.get_platform_name() not in OFFICIAL_PLATFORMS:
         return QQReply()
 
-    footer = "快捷指令 " + " · ".join(command for _, command in actions[:5]) if actions else ""
+    footer = manual_hint or ("快捷指令 " + " · ".join(command for _, command in actions[:5]) if actions else "")
     plain = "\n\n".join(part for part in (text.strip(), footer) if part)
     target = _reply_target(event)
     picture = await _prepare_picture(image) if image else None
@@ -360,14 +361,18 @@ async def send(
     button_owner: str | None = None,
     use_markdown: bool = True,
     use_buttons: bool = True,
+    quote_line: str = "",
+    manual_hint: str = "",
 ) -> bool:
     """Format a game reply heading and preserve a readable plain-text fallback."""
     title = title.strip()
     body = body.strip()
-    text = "\n\n".join(part for part in (title, body) if part)
+    summary = " ".join(quote_line.splitlines()).strip()
+    text = "\n\n".join(part for part in (title, summary, body) if part)
     markdown_title = f"## {escape_markdown(' '.join(title.splitlines()))}" if title else ""
+    markdown_summary = f"> {escape_markdown(summary)}" if summary else ""
     markdown_body = escape_markdown(body).replace("\n", "  \n")
-    markdown = "\n\n".join(part for part in (markdown_title, markdown_body) if part)
+    markdown = "\n\n".join(part for part in (markdown_title, markdown_summary, markdown_body) if part)
     result = await send_qq_reply(
         event,
         text,
@@ -377,5 +382,6 @@ async def send(
         button_owner=button_owner,
         use_markdown=use_markdown,
         use_buttons=use_buttons,
+        manual_hint=manual_hint,
     )
     return result.handled

@@ -67,27 +67,30 @@ class DrawGame:
             image = random.choice(images) if images else None
             record = None
             ttl = OFFICIAL_ACTION_TTL if official else DRAW_MSG_TTL
-            lines = [f"角色 ID：{cid}　｜　本小时剩余：{limit - count - 1}"]
+            summary = f"角色 ID：{cid}　｜　本小时剩余：{limit - count - 1}"
+            lines = []
             source = self.char_manager.get_works(cid)
             if source:
-                lines.append(f"关联作品：{source[0]}")
+                lines.append(f"出自：{source[0]}")
             if owner:
                 lines.append(f"已与 {await self._user_label(gid, str(owner))} 结婚。")
             if wishers and (not owner or contest):
                 lines.append(f"{len(wishers)} 位玩家许愿了这个角色。")
             actions = [("再抽一次", "抽卡")]
+            manual_hint = ""
             if not owner or contest:
                 code, record = self._new_action(gid, "draw", ttl, cid=cid, owner=owner)
-                lines.append(f"{ttl} 秒内发送：结婚 {code}")
+                manual_hint = f"{ttl} 秒内发送：结婚 {code}"
                 actions.insert(0, ("结婚", f"结婚 {code}"))
             if not official:
                 chain = [{"type": "text", "data": {"text": f"{char['name']}\n"}}]
                 for wisher in wishers[:10] if not owner or contest else []:
                     if str(wisher).isdecimal():
                         chain.append({"type": "at", "data": {"qq": str(wisher)}})
-                if record:
-                    lines.append("也可以回复抽卡消息「结婚」或给结果贴表情。")
-                chain.append({"type": "text", "data": {"text": "\n".join(lines)}})
+                details = [summary, *lines]
+                if manual_hint:
+                    details.extend((manual_hint, "也可以回复抽卡消息「结婚」或给结果贴表情。"))
+                chain.append({"type": "text", "data": {"text": "\n".join(details)}})
                 if image:
                     file = image if image.startswith(("http://", "https://")) else self._image_component(image).file
                     chain.append({"type": "image", "data": {"file": file}})
@@ -100,7 +103,10 @@ class DrawGame:
                         await self._onebot_react(event, msg_id, 128046 if contest else 66)
                     return
             await self._record_draw(gid, key, bucket, count, now)
-        async for result in self._render(event, char["name"], "\n".join(lines), image, actions, button_owner=""):
+        async for result in self._render(
+            event, char["name"], "\n".join(lines), image, actions,
+            button_owner="", quote_line=summary, manual_hint=manual_hint,
+        ):
             yield result
 
     async def _record_draw(self, gid: str, key: str, bucket: str, count: int, now: float) -> None:
