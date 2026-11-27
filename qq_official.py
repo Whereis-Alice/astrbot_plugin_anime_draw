@@ -26,6 +26,8 @@ OFFICIAL_PLATFORMS = frozenset({"qq_official", "qq_official_webhook"})
 MARKDOWN_SYNTAX = re.compile(r"([\\`*_{}\[\]()#+.!|<>~\-])")
 MEDIA_URL = re.compile(r"""qqbot-media://image/v1/[^\s()<>\[\]\\"']{1,1500}""")
 COS_HOST = re.compile(r"[a-z0-9-]+\.cos\.[a-z0-9-]+\.myqcloud\.com")
+CATALOG_LINK_FIRST = "卡池外链优先"
+QQ_STORAGE_FIRST = "QQ 官方素材优先"
 IMAGE_QUOTA_EXCEEDED = 40035007
 _image_refs: OrderedDict[tuple[str, bool, str], tuple[float, str]] = OrderedDict()
 _image_quota_retry: dict[tuple[str, bool], float] = {}
@@ -213,7 +215,7 @@ async def _markdown_image(target: _Target, picture: PictureFile) -> str | None:
     })
     if response and response.code == IMAGE_QUOTA_EXCEEDED and app_id:
         _image_quota_retry[app] = now + 300
-        logger.info("[二次元抽抽乐] QQ Markdown 图片额度暂不可用，优先使用缓存或卡池图源。")
+        logger.debug("[二次元抽抽乐] QQ Markdown 素材额度已满，5 分钟后重试新素材上传。")
     if response is None or not response.accepted or not response.document:
         return None
     upload_id = response.document.get("upload_id")
@@ -289,6 +291,7 @@ async def send_qq_reply(
     button_owner: str | None = None,
     use_markdown: bool = True,
     use_buttons: bool = True,
+    image_mode: str = CATALOG_LINK_FIRST,
     manual_hint: str = "",
 ) -> QQReply:
     """Send an official QQ reply, returning its id for reply-to-result commands."""
@@ -302,15 +305,13 @@ async def send_qq_reply(
         return QQReply()
     picture = image if isinstance(image, Picture) else (await prepare_reply_picture(image) if image else None)
 
-    reference = None
-    if picture and picture.inline and use_markdown:
+    reference = picture.source_url if picture and use_markdown else ""
+    if picture and picture.inline and use_markdown and (not reference or image_mode == QQ_STORAGE_FIRST):
         try:
             async with asyncio.timeout(10):
-                reference = await _markdown_image(target, picture.inline)
+                reference = await _markdown_image(target, picture.inline) or reference
         except TimeoutError:
             logger.debug("[二次元抽抽乐] QQ Markdown 图片上传超时。")
-    if not reference and picture and use_markdown:
-        reference = picture.source_url
     has_markdown = use_markdown and bool(text or markdown)
     if has_markdown:
         body = markdown if markdown is not None else escape_markdown(text).replace("\n", "  \n")
@@ -392,6 +393,7 @@ async def send(
     button_owner: str | None = None,
     use_markdown: bool = True,
     use_buttons: bool = True,
+    image_mode: str = CATALOG_LINK_FIRST,
     quote_line: str = "",
     quote_footer: str = "",
     manual_hint: str = "",
@@ -418,6 +420,7 @@ async def send(
         button_owner=button_owner,
         use_markdown=use_markdown,
         use_buttons=use_buttons,
+        image_mode=image_mode,
         manual_hint=manual_hint,
     )
     return result.handled

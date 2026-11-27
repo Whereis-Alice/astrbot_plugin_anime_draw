@@ -129,6 +129,7 @@ class GameRuntime:
             event, title, body, image=image, actions=actions, button_owner=button_owner,
             use_markdown=self.config.get("official_markdown", True),
             use_buttons=self.config.get("official_buttons", True),
+            image_mode=self.config.get("official_image_mode", qq.CATALOG_LINK_FIRST),
             quote_line=quote_line, quote_footer=quote_footer, manual_hint=manual_hint,
         ):
             return

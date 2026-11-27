@@ -8,8 +8,15 @@
     "official_markdown": {
       "description": "QQ 官方机器人 Markdown",
       "type": "bool",
-      "hint": "发送失败时回退到普通消息。关闭后保留文字短码。",
+      "hint": "关闭后发送普通图文，并保留可手动输入的指令。",
       "default": true
+    },
+    "official_image_mode": {
+      "description": "QQ 官方机器人图文发送方式",
+      "type": "string",
+      "hint": "仅在 Markdown 开启时生效。卡池外链优先直接使用原图链接，无外链时尝试 QQ 官方素材。QQ 官方素材优先会先复用或上传素材，失败时尝试卡池外链。",
+      "options": ["卡池外链优先", "QQ 官方素材优先"],
+      "default": "卡池外链优先"
     },
     "official_buttons": {
       "description": "QQ 官方机器人快捷按钮",
