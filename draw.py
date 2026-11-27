@@ -9,7 +9,7 @@ import astrbot.api.message_components as Comp
 from astrbot.api.event import AstrMessageEvent
 
 from . import qq_official as qq
-from .game_runtime import DRAW_MSG_TTL, GAME_TIMEZONE, OFFICIAL_ACTION_TTL
+from .game_runtime import DRAW_MSG_TTL, GAME_TIMEZONE, OFFICIAL_DRAW_TTL
 
 
 class DrawGame:
@@ -66,7 +66,7 @@ class DrawGame:
             images = await self._images(gid, char)
             image = random.choice(images) if images else None
             record = None
-            ttl = OFFICIAL_ACTION_TTL if official else DRAW_MSG_TTL
+            ttl = OFFICIAL_DRAW_TTL if official else DRAW_MSG_TTL
             summary = f"角色 ID：{cid}　｜　本小时剩余：{limit - count - 1}"
             lines = []
             source = self.char_manager.get_works(cid)

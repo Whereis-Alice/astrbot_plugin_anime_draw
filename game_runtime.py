@@ -15,7 +15,8 @@ from .storage import group_scope
 PLUGIN_NAME = "astrbot_plugin_anime_draw"
 GAME_TIMEZONE = datetime.timezone(datetime.timedelta(hours=8))
 DRAW_MSG_TTL = 45
-OFFICIAL_ACTION_TTL = 120
+OFFICIAL_DRAW_TTL = 180
+OFFICIAL_EXCHANGE_TTL = 120
 DRAW_MSG_INDEX_MAX = 300
 ID_PATTERN = r"[A-Za-z0-9_-]{1,128}"
 

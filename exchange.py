@@ -5,7 +5,7 @@ import re
 from astrbot.api.event import AstrMessageEvent
 
 from . import qq_official as qq
-from .game_runtime import DRAW_MSG_TTL, OFFICIAL_ACTION_TTL
+from .game_runtime import DRAW_MSG_TTL, OFFICIAL_EXCHANGE_TTL
 
 
 class ExchangeGame:
@@ -21,7 +21,7 @@ class ExchangeGame:
         gid = self._scope(event)
         from_uid = str(event.get_sender_id())
         official = event.get_platform_name() in qq.OFFICIAL_PLATFORMS
-        ttl = OFFICIAL_ACTION_TTL if official else DRAW_MSG_TTL
+        ttl = OFFICIAL_EXCHANGE_TTL if official else DRAW_MSG_TTL
         async with self._get_group_lock(gid):
             owner = await self.store.get(f"{gid}:{my_cid}:married_to")
             to_uid = await self.store.get(f"{gid}:{other_cid}:married_to")
